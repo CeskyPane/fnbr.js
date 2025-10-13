@@ -421,8 +421,11 @@ class ClientParty extends Party {
     let mm = me.meta.get('Default:MatchmakingInfo_j');
     const ts = Date.now();
 
+    const prevSel = mm?.MatchmakingInfo?.islandSelection || {};
+    const prevIsland = prevSel.island || {};
+
     const nextIsland = {
-      ...(mm?.MatchmakingInfo?.islandSelection?.island || {}),
+      ...prevIsland,
       linkId: {
         mnemonic,
         version: version ?? -1,
@@ -436,25 +439,10 @@ class ClientParty extends Party {
       MatchmakingInfo: {
         ...(mm?.MatchmakingInfo || {}),
         islandSelection: {
-          ...(mm?.MatchmakingInfo?.islandSelection || {}),
+          ...prevSel,
           island: nextIsland,
           timestamp: ts,
-          bUsingGracefulUpgrade: true,
-          matchmakingId: mm?.MatchmakingInfo?.islandSelection?.matchmakingId || '',
         },
-        currentIsland: {
-          ...(mm?.MatchmakingInfo?.currentIsland || {}),
-          island: nextIsland,
-          timestamp: ts,
-          bUsingGracefulUpgrade: true,
-          matchmakingId: mm?.MatchmakingInfo?.currentIsland?.matchmakingId || '',
-        },
-        readyStatus: mm?.MatchmakingInfo?.readyStatus ?? 'NotReady',
-        worldSessionId: mm?.MatchmakingInfo?.worldSessionId ?? '',
-        travelId: mm?.MatchmakingInfo?.travelId ?? '',
-        playlistVersion: mm?.MatchmakingInfo?.playlistVersion ?? 1,
-        maxMatchmakingDelay: mm?.MatchmakingInfo?.maxMatchmakingDelay ?? 0,
-        bIsEligible: mm?.MatchmakingInfo?.bIsEligible ?? true,
       },
     });
 
