@@ -417,27 +417,49 @@ class ClientParty extends Party {
   public async setPlaylist(mnemonic: string, regionId?: string, version?: number, options?: Omit<Island, 'linkId'>) {
     if (!this.me.isLeader) throw new PartyPermissionError();
 
-    let regionIdData = this.meta.get('Default:RegionId_s');
-    if (regionId) {
-      regionIdData = this.meta.set('Default:RegionId_s', regionId);
-    }
+    const { me } = this;
+    let mm = me.meta.get('Default:MatchmakingInfo_j');
+    const ts = Date.now();
 
-    let data = this.meta.get('Default:SelectedIsland_j');
-    data = this.meta.set('Default:SelectedIsland_j', {
-      ...data,
-      SelectedIsland: {
-        ...data.SelectedIsland,
-        linkId: {
-          mnemonic,
-          version: version ?? -1,
+    const nextIsland = {
+      ...(mm?.MatchmakingInfo?.islandSelection?.island || {}),
+      linkId: {
+        mnemonic,
+        version: version ?? -1,
+      },
+      ...(regionId ? { regionId } : {}),
+      ...(options || {}),
+    };
+
+    mm = me.meta.set('Default:MatchmakingInfo_j', {
+      ...mm,
+      MatchmakingInfo: {
+        ...(mm?.MatchmakingInfo || {}),
+        islandSelection: {
+          ...(mm?.MatchmakingInfo?.islandSelection || {}),
+          island: nextIsland,
+          timestamp: ts,
+          bUsingGracefulUpgrade: true,
+          matchmakingId: mm?.MatchmakingInfo?.islandSelection?.matchmakingId || '',
         },
-        ...options,
+        currentIsland: {
+          ...(mm?.MatchmakingInfo?.currentIsland || {}),
+          island: nextIsland,
+          timestamp: ts,
+          bUsingGracefulUpgrade: true,
+          matchmakingId: mm?.MatchmakingInfo?.currentIsland?.matchmakingId || '',
+        },
+        readyStatus: mm?.MatchmakingInfo?.readyStatus ?? 'NotReady',
+        worldSessionId: mm?.MatchmakingInfo?.worldSessionId ?? '',
+        travelId: mm?.MatchmakingInfo?.travelId ?? '',
+        playlistVersion: mm?.MatchmakingInfo?.playlistVersion ?? 1,
+        maxMatchmakingDelay: mm?.MatchmakingInfo?.maxMatchmakingDelay ?? 0,
+        bIsEligible: mm?.MatchmakingInfo?.bIsEligible ?? true,
       },
     });
 
-    await this.sendPatch({
-      'Default:SelectedIsland_j': data,
-      'Default:RegionId_s': regionIdData,
+    await me.sendPatch({
+      'Default:MatchmakingInfo_j': mm,
     });
   }
 
