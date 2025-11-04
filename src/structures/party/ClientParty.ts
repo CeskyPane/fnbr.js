@@ -430,25 +430,39 @@ class ClientParty extends Party {
         mnemonic,
         version: version ?? -1,
       },
-      ...(regionId ? { regionId } : {}),
       ...(options || {}),
     };
 
-    mm = me.meta.set('Default:MatchmakingInfo_j', {
-      ...mm,
-      MatchmakingInfo: {
-        ...(mm?.MatchmakingInfo || {}),
-        islandSelection: {
-          ...prevSel,
-          island: nextIsland,
-          timestamp: ts,
-        },
-      },
-    });
+    const islandChanged =
+      prevIsland?.linkId?.mnemonic !== nextIsland.linkId.mnemonic ||
+      (prevIsland?.linkId?.version ?? -1) !== (version ?? -1);
 
-    await me.sendPatch({
-      'Default:MatchmakingInfo_j': mm,
-    });
+    if (islandChanged) {
+      mm = me.meta.set('Default:MatchmakingInfo_j', {
+        ...mm,
+        MatchmakingInfo: {
+          ...(mm?.MatchmakingInfo || {}),
+          islandSelection: {
+            ...prevSel,
+            island: nextIsland,
+            timestamp: ts,
+          },
+        },
+      });
+
+      await me.sendPatch({
+        'Default:MatchmakingInfo_j': mm,
+      });
+    }
+
+    if (regionId !== undefined) {
+      let regionIdData = this.meta.get('Default:RegionId_s');
+      regionIdData = this.meta.set('Default:RegionId_s', regionId);
+
+      await this.sendPatch({
+        'Default:RegionId_s': regionIdData,
+      });
+    }
   }
 
   /**
