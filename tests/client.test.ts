@@ -7,23 +7,29 @@ import {
 } from '@jest/globals';
 import { Client, UserNotFoundError } from '..';
 
-const client = new Client({
+const deviceAuthRaw = process.env.DEVICE_AUTH;
+const hasDeviceAuth = typeof deviceAuthRaw === 'string' && deviceAuthRaw.length > 0;
+const describeIf = hasDeviceAuth ? describe : describe.skip;
+
+const client = hasDeviceAuth ? new Client({
   auth: {
-    deviceAuth: JSON.parse(process.env.DEVICE_AUTH!),
+    deviceAuth: JSON.parse(deviceAuthRaw!),
     killOtherTokens: false,
     authClient: 'fortniteAndroidGameClient',
   },
-});
+}) : (undefined as unknown as Client);
 
 beforeAll(async () => {
+  if (!hasDeviceAuth) return;
   await client.login();
 });
 
 afterAll(async () => {
+  if (!hasDeviceAuth) return;
   await client.logout();
 });
 
-describe('client methods', () => {
+describeIf('client methods', () => {
   test('logs in', () => {
     expect(client.isReady).toBe(true);
 
@@ -142,7 +148,7 @@ describe('client methods', () => {
   }, 20000);
 });
 
-describe('user manager methods', () => {
+describeIf('user manager methods', () => {
   test('fetches user', async () => {
     const user = await client.user.fetch('This_Nils');
     expect(user).toBeDefined();

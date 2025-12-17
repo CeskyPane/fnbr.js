@@ -422,28 +422,47 @@ class ClientParty extends Party {
     const ts = Date.now();
 
     const prevSel = mm?.MatchmakingInfo?.islandSelection || {};
-    const prevIsland = prevSel.island || {};
 
-    const nextIsland = {
-      ...prevIsland,
-      linkId: {
-        mnemonic,
-        version: version ?? -1,
-      },
+    const prevIslandRaw = prevSel.island;
+    const prevIslandObj = typeof prevIslandRaw === 'string'
+      ? JSON.parse(prevIslandRaw)
+      : (prevIslandRaw || {});
+
+    const makeLinkId = (m: string, v: number) => (v === -1 ? m : `${m}:${v}`);
+
+    const nextLinkId = makeLinkId(mnemonic, version ?? -1);
+
+    const nextIslandObj = {
+      ...prevIslandObj,
       ...(options || {}),
+
+      LinkId: nextLinkId,
+      MatchmakingSettingsV1: {
+        ...(prevIslandObj.MatchmakingSettingsV1 || {}),
+        ...(regionId !== undefined ? { regionId } : {}),
+      },
     };
 
-    const islandChanged =
-      prevIsland?.linkId?.mnemonic !== nextIsland.linkId.mnemonic ||
-      (prevIsland?.linkId?.version ?? -1) !== (version ?? -1);
+    const nextIsland = JSON.stringify(nextIslandObj);
 
-    if (islandChanged) {
+    const prevLinkId = prevIslandObj?.LinkId ?? '';
+    const islandChanged = prevLinkId !== nextLinkId;
+
+    if (islandChanged || regionId !== undefined || options !== undefined) {
       mm = me.meta.set('Default:MatchmakingInfo_j', {
         ...mm,
         MatchmakingInfo: {
           ...(mm?.MatchmakingInfo || {}),
+
           islandSelection: {
+            ...(mm?.MatchmakingInfo?.islandSelection || {}),
             ...prevSel,
+            island: nextIsland,
+            timestamp: ts,
+          },
+
+          currentIsland: {
+            ...(mm?.MatchmakingInfo?.currentIsland || {}),
             island: nextIsland,
             timestamp: ts,
           },
