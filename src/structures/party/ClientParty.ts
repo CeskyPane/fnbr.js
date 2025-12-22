@@ -419,36 +419,68 @@ class ClientParty extends Party {
 
     const { me } = this;
     let mm = me.meta.get('Default:MatchmakingInfo_j');
-    const ts = Date.now();
+    // Fortnite stores seconds here; using ms can lead to overflows/invalid values in some flows.
+    const ts = Math.floor(Date.now() / 1000);
 
     const prevSel = mm?.MatchmakingInfo?.islandSelection || {};
 
     const prevIslandRaw = prevSel.island;
-    const prevIslandObj = typeof prevIslandRaw === 'string'
-      ? JSON.parse(prevIslandRaw)
-      : (prevIslandRaw || {});
+    let prevIslandObj: any = prevIslandRaw || {};
+    if (typeof prevIslandRaw === 'string') {
+      try {
+        prevIslandObj = JSON.parse(prevIslandRaw);
+      } catch {
+        prevIslandObj = {};
+      }
+    }
 
     const makeLinkId = (m: string, v: number) => (v === -1 ? m : `${m}:${v}`);
 
     const nextLinkId = makeLinkId(mnemonic, version ?? -1);
 
-    const nextIslandObj = {
+    // Best-effort region fallback: keep current party region if caller didn't pass one.
+    const effectiveRegionId = regionId ?? this.meta.regionId
+      ?? prevIslandObj?.MatchmakingSettingsV1?.regionId
+      ?? prevIslandObj?.MatchmakingSettingsV2?.['/Fortnite.com/Matchmaking:Region'];
+
+    // Normalize to a V1 settings object (this matches what Fortnite UI writes for many playlists).
+    // Keep existing privacy if present, otherwise default to NoFill (bots typically shouldn't pull random fills).
+    const prevV1 = prevIslandObj?.MatchmakingSettingsV1 || {};
+    const nextV1: any = {
+      ...(prevV1 || {}),
+      ...(effectiveRegionId !== undefined ? { regionId: effectiveRegionId } : {}),
+      ...(prevV1?.privacy ? {} : { privacy: 'NoFill' }),
+      ...(prevV1?.world ? {} : {
+        world: {
+          iD: '',
+          ownerId: 'INVALID',
+          name: '',
+          bIsJoinable: false,
+        },
+      }),
+      ...(prevV1?.productModes ? {} : { productModes: [] }),
+    };
+
+    const nextIslandObj: any = {
       ...prevIslandObj,
       ...(options || {}),
 
       LinkId: nextLinkId,
-      MatchmakingSettingsV1: {
-        ...(prevIslandObj.MatchmakingSettingsV1 || {}),
-        ...(regionId !== undefined ? { regionId } : {}),
-      },
+      MatchmakingSettingsV1: nextV1,
     };
+    // Avoid mixed V1/V2 settings; it can lead to inconsistent matchmaking across party members.
+    delete nextIslandObj.MatchmakingSettingsV2;
 
     const nextIsland = JSON.stringify(nextIslandObj);
 
     const prevLinkId = prevIslandObj?.LinkId ?? '';
     const islandChanged = prevLinkId !== nextLinkId;
 
-    if (islandChanged || regionId !== undefined || options !== undefined) {
+    const needsNormalization = !!prevIslandObj?.MatchmakingSettingsV2
+      || !prevIslandObj?.MatchmakingSettingsV1
+      || (effectiveRegionId !== undefined && prevIslandObj?.MatchmakingSettingsV1?.regionId !== effectiveRegionId);
+
+    if (islandChanged || options !== undefined || needsNormalization) {
       mm = me.meta.set('Default:MatchmakingInfo_j', {
         ...mm,
         MatchmakingInfo: {
@@ -457,12 +489,6 @@ class ClientParty extends Party {
           islandSelection: {
             ...(mm?.MatchmakingInfo?.islandSelection || {}),
             ...prevSel,
-            island: nextIsland,
-            timestamp: ts,
-          },
-
-          currentIsland: {
-            ...(mm?.MatchmakingInfo?.currentIsland || {}),
             island: nextIsland,
             timestamp: ts,
           },
