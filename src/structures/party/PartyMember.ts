@@ -6,7 +6,24 @@ import type Party from './Party';
 import type ClientParty from './ClientParty';
 import type { PartyMemberData, PartyMemberSchema, PartyMemberUpdateData } from '../../../resources/structs';
 
-const MATCHMAKING_INFO_KEYS: Set<keyof PartyMemberSchema & string> = new Set(['Default:MatchmakingInfo_j'] as (keyof PartyMemberSchema & string)[]);
+const MATCHMAKING_INFO_KEYS = new Set(['Default:MatchmakingInfo_j'] as const);
+
+const isIslandV2 = (island: unknown): boolean => {
+  if (typeof island === 'string') {
+    return island.includes('MatchmakingSettingsV2');
+  }
+  return typeof island === 'object' && island !== null;
+};
+
+const shouldIgnoreMatchmakingUpdate = (value: unknown): boolean => {
+  if (typeof value !== 'object' || value === null) return false;
+  const info = (value as any).MatchmakingInfo;
+  if (!info) return false;
+  const islandSelection = info.islandSelection;
+  const currentIsland = info.currentIsland;
+  if (!islandSelection || !currentIsland) return false;
+  return isIslandV2(islandSelection.island) || isIslandV2(currentIsland.island);
+};
 
 /**
  * Represents a party member
@@ -237,7 +254,12 @@ class PartyMember extends User {
     if (data.revision > this.revision) this.revision = data.revision;
     if (data.account_dn !== this.displayName) this.update({ id: this.id, displayName: data.account_dn, externalAuths: this.externalAuths });
 
-    this.meta.update(data.member_state_updated, true, {
+    const updates = { ...data.member_state_updated };
+    if (updates['Default:MatchmakingInfo_j'] && shouldIgnoreMatchmakingUpdate(updates['Default:MatchmakingInfo_j'])) {
+      delete updates['Default:MatchmakingInfo_j'];
+    }
+
+    this.meta.update(updates, true, {
       allowedProtectedKeys: MATCHMAKING_INFO_KEYS,
     });
     const removed = (data.member_state_removed || []).filter((key) => !PROTECTED_META_KEYS.has(key));
