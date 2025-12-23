@@ -1,4 +1,5 @@
 import PartyPermissionError from '../../exceptions/PartyPermissionError';
+import { PROTECTED_META_KEYS } from '../../util/Meta';
 import PartyMemberMeta from './PartyMemberMeta';
 import User from '../user/User';
 import type Party from './Party';
@@ -235,7 +236,8 @@ class PartyMember extends User {
     if (data.account_dn !== this.displayName) this.update({ id: this.id, displayName: data.account_dn, externalAuths: this.externalAuths });
 
     this.meta.update(data.member_state_updated, true);
-    this.meta.remove(data.member_state_removed as (keyof PartyMemberSchema)[]);
+    const removed = (data.member_state_removed || []).filter((key) => !PROTECTED_META_KEYS.has(key));
+    if (removed.length) this.meta.remove(removed as (keyof PartyMemberSchema)[]);
   }
 
   /**

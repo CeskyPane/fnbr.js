@@ -1,5 +1,16 @@
 import type { Schema } from '../../resources/structs';
 
+export type MetaSetOptions = {
+  allowProtected?: boolean;
+};
+
+export const PROTECTED_META_KEYS = new Set<keyof Schema & string>([
+  'Default:PlatformSessions_j',
+  'Default:PlatformData_j',
+  'Default:SquadInformation_j',
+  'urn:epic:member:dn_s',
+]);
+
 /**
  * Represents a key-value-based meta structure used for parties and party members
  * @private
@@ -24,8 +35,15 @@ class Meta<T extends Schema> {
    * @param isRaw Whether the value should be added without further type checking
    * @returns The serialized value stored in the schema
    */
-  public set(key: keyof T & string, value: any, isRaw = false) {
+  public set(key: keyof T & string, value: any, isRaw = false, options: MetaSetOptions = {}) {
     const keyType = key.slice(-1);
+    const isProtected = PROTECTED_META_KEYS.has(key);
+
+    if (isProtected && !options.allowProtected) {
+      if (typeof this.schema[key] !== 'undefined') {
+        return this.schema[key];
+      }
+    }
     if (keyType === 'j' && !isRaw && typeof value === 'object' && value !== null) {
       const existing = this.schema[key] ? JSON.parse(this.schema[key]!) : {};
       this.schema[key] = JSON.stringify({
@@ -78,9 +96,10 @@ class Meta<T extends Schema> {
    * Updates the schema
    * @param schema The new schema
    * @param isRaw Whether the values are raw
+   * @param options Additional set options
    */
-  public update(schema: Partial<T>, isRaw = false) {
-    Object.keys(schema).forEach((prop: keyof T & string) => this.set(prop, schema[prop], isRaw));
+  public update(schema: Partial<T>, isRaw = false, options: MetaSetOptions = {}) {
+    Object.keys(schema).forEach((prop: keyof T & string) => this.set(prop, schema[prop], isRaw, options));
   }
 
   /**

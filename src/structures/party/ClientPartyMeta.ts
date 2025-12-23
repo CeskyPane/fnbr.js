@@ -60,7 +60,7 @@ class ClientPartyMeta extends PartyMeta {
         ...squadInformation.SquadInformation,
         rawSquadAssignments: assignments,
       },
-    });
+    }, false, { allowProtected: true });
   }
 
   public updatePrivacy() {

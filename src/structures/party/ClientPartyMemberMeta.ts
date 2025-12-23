@@ -53,9 +53,9 @@ class ClientPartyMemberMeta extends PartyMemberMeta {
           sessionId: '',
         },
       }),
-    }, true);
+    }, true, { allowProtected: true });
 
-    if (schema) this.update(schema, true);
+    if (schema) this.update(schema, true, { allowProtected: true });
   }
 }
 
