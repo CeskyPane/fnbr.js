@@ -499,7 +499,7 @@ class ClientParty extends Party {
             timestamp: ts,
           },
         },
-      });
+      }, false, { allowProtected: true });
 
       await me.sendPatch({
         'Default:MatchmakingInfo_j': mm,

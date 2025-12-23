@@ -9,6 +9,7 @@ export const PROTECTED_META_KEYS = new Set<keyof Schema & string>([
   'Default:PlatformData_j',
   'Default:SquadInformation_j',
   'urn:epic:member:dn_s',
+  'Default:MatchmakingInfo_j',
 ]);
 
 /**
