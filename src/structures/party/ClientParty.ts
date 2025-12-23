@@ -468,7 +468,7 @@ class ClientParty extends Party {
       LinkId: nextLinkId,
       MatchmakingSettingsV1: nextV1,
     };
-    // Avoid mixed V1/V2 settings; it can lead to inconsistent matchmaking across party members.
+    // Avoid mixed V1/V2 settings to keep Meta consistent across members.
     delete nextIslandObj.MatchmakingSettingsV2;
 
     const nextIsland = JSON.stringify(nextIslandObj);
@@ -489,6 +489,12 @@ class ClientParty extends Party {
           islandSelection: {
             ...(mm?.MatchmakingInfo?.islandSelection || {}),
             ...prevSel,
+            island: nextIsland,
+            timestamp: ts,
+          },
+
+          currentIsland: {
+            ...(mm?.MatchmakingInfo?.currentIsland || {}),
             island: nextIsland,
             timestamp: ts,
           },

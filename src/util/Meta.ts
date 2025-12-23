@@ -18,19 +18,28 @@ class Meta<T extends Schema> {
   }
 
   /**
-   * Adds a key-value pair to the schema
+   * Adds a key-value pair to the schema by merging with existing data
    * @param key The key
    * @param value The value
    * @param isRaw Whether the value should be added without further type checking
-   * @returns A parsed version of the value
+   * @returns The serialized value stored in the schema
    */
   public set(key: keyof T & string, value: any, isRaw = false) {
+    const keyType = key.slice(-1);
+    if (keyType === 'j' && !isRaw && typeof value === 'object' && value !== null) {
+      const existing = this.schema[key] ? JSON.parse(this.schema[key]!) : {};
+      this.schema[key] = JSON.stringify({
+        ...(existing || {}),
+        ...value,
+      }) as any;
+      return this.schema[key];
+    }
+
     if (isRaw) {
       this.schema[key] = value.toString();
       return this.schema[key];
     }
 
-    const keyType = key.slice(-1);
     if (keyType === 'j') {
       this.schema[key] = JSON.stringify(value) as any;
     } else if (keyType === 'U') {
