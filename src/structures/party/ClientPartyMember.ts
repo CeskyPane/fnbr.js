@@ -4,6 +4,7 @@ import ClientPartyMemberMeta from './ClientPartyMemberMeta';
 import PartyMember from './PartyMember';
 import { AuthSessionStoreKey } from '../../../resources/enums';
 import EpicgamesAPIError from '../../exceptions/EpicgamesAPIError';
+import { formatMetaSummary } from '../../util/partyMetaDebug';
 import type {
   CosmeticEnlightment, Cosmetics, CosmeticsVariantMeta, CosmeticVariant, PartyMemberData, PartyMemberSchema, Schema,
 } from '../../../resources/structs';
@@ -47,6 +48,10 @@ class ClientPartyMember extends PartyMember {
     await this.patchQueue.wait();
 
     try {
+      this.client.debug(formatMetaSummary(
+        `[PartyMember ${this.id}] sendPatch rev=${this.revision}`,
+        updated as Record<string, unknown>,
+      ));
       await this.client.http.epicgamesRequest({
         method: 'PATCH',
         url: `${Endpoints.BR_PARTY}/parties/${this.party.id}/members/${this.id}/meta`,

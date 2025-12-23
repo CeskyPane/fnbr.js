@@ -13,6 +13,7 @@ import PartyChat from './PartyChat';
 import SentPartyInvitation from './SentPartyInvitation';
 import { AuthSessionStoreKey } from '../../../resources/enums';
 import EpicgamesAPIError from '../../exceptions/EpicgamesAPIError';
+import { formatMetaSummary } from '../../util/partyMetaDebug';
 import type PartyMemberConfirmation from './PartyMemberConfirmation';
 import type ClientPartyMember from './ClientPartyMember';
 import type Client from '../../Client';
@@ -95,6 +96,7 @@ class ClientParty extends Party {
 
   private async ensurePlatformSession() {
     if (!this.platformSessionsSnapshot || !this.client.user.self) return;
+    if (!this.me?.isLeader) return;
 
     const currentMeta = this.meta.get('Default:PlatformSessions_j');
     const currentSessions = Array.isArray(currentMeta?.PlatformSessions)
@@ -110,6 +112,11 @@ class ClientParty extends Party {
       { allowProtected: true },
     );
     this.capturePlatformSession(this.meta.schema['Default:PlatformSessions_j']);
+
+    this.client.debug(formatMetaSummary(
+      `[Party ${this.id}] ensurePlatformSession`,
+      { 'Default:PlatformSessions_j': patchedValue },
+    ));
 
     await this.sendPatch({
       'Default:PlatformSessions_j': patchedValue,
@@ -166,6 +173,11 @@ class ClientParty extends Party {
     await this.patchQueue.wait();
 
     try {
+      this.client.debug(formatMetaSummary(
+        `[Party ${this.id}] sendPatch rev=${this.revision}`,
+        updated as Record<string, unknown>,
+        deleted,
+      ));
       await this.client.http.epicgamesRequest({
         method: 'PATCH',
         url: `${Endpoints.BR_PARTY}/parties/${this.id}`,
@@ -216,7 +228,13 @@ class ClientParty extends Party {
 
   public updateData(data: PartyUpdateData) {
     super.updateData(data);
-    this.capturePlatformSession(data.party_state_updated?.['Default:PlatformSessions_j']);
+    const platformSessions = data.party_state_updated?.['Default:PlatformSessions_j'];
+    this.capturePlatformSession(platformSessions);
+    if (platformSessions) {
+      void this.ensurePlatformSession().catch((err: any) => {
+        this.client.debug(`[Party ${this.id}] ensurePlatformSession failed: ${err?.message || err}`);
+      });
+    }
   }
 
   /**
@@ -386,6 +404,7 @@ class ClientParty extends Party {
   public async setCustomMatchmakingKey(key?: string) {
     if (!this.me.isLeader) throw new PartyPermissionError();
 
+    this.client.debug(`[Party ${this.id}] setCustomMatchmakingKey key=${key || ''}`);
     await this.sendPatch({
       'Default:CustomMatchKey_s': this.meta.set('Default:CustomMatchKey_s', key || ''),
     });
@@ -533,6 +552,10 @@ class ClientParty extends Party {
     const needsNormalization = !!prevIslandObj?.MatchmakingSettingsV2
       || !prevIslandObj?.MatchmakingSettingsV1
       || (effectiveRegionId !== undefined && prevIslandObj?.MatchmakingSettingsV1?.regionId !== effectiveRegionId);
+
+    this.client.debug(`[Party ${this.id}] setPlaylist mnemonic=${mnemonic} region=${regionId ?? '<keep>'} `
+      + `version=${version ?? -1} linkId=${nextLinkId} islandChanged=${islandChanged} `
+      + `normalize=${needsNormalization}`);
 
     if (islandChanged || options !== undefined || needsNormalization) {
       mm = me.meta.set('Default:MatchmakingInfo_j', {

@@ -2,6 +2,7 @@ import PartyPermissionError from '../../exceptions/PartyPermissionError';
 import { PROTECTED_META_KEYS } from '../../util/Meta';
 import PartyMemberMeta from './PartyMemberMeta';
 import User from '../user/User';
+import { formatMetaFocus, formatMetaSummary } from '../../util/partyMetaDebug';
 import type Party from './Party';
 import type ClientParty from './ClientParty';
 import type { PartyMemberData, PartyMemberSchema, PartyMemberUpdateData } from '../../../resources/structs';
@@ -58,6 +59,8 @@ class PartyMember extends User {
    * Whether this member has received an initial state update
    */
   public receivedInitialStateUpdate: boolean;
+
+  protected lastMatchmakingInfoRepairAt?: number;
 
   /**
    * @param party The party this member belongs to
@@ -255,15 +258,51 @@ class PartyMember extends User {
     if (data.account_dn !== this.displayName) this.update({ id: this.id, displayName: data.account_dn, externalAuths: this.externalAuths });
 
     const updates = { ...data.member_state_updated };
+    const removedKeys = (data.member_state_removed || []) as string[];
     if (updates['Default:MatchmakingInfo_j'] && shouldIgnoreMatchmakingUpdate(updates['Default:MatchmakingInfo_j'])) {
+      this.client.debug(formatMetaFocus(
+        `[PartyMember ${this.id}] ignore MatchmakingInfo (v2)`,
+        { 'Default:MatchmakingInfo_j': updates['Default:MatchmakingInfo_j'] },
+      ));
       delete updates['Default:MatchmakingInfo_j'];
+      this.queueMatchmakingInfoRepair();
+    }
+
+    if (Object.keys(updates).length || removedKeys.length) {
+      this.client.debug(formatMetaSummary(
+        `[PartyMember ${this.id}] member_state_updated`,
+        updates as Record<string, unknown>,
+        removedKeys,
+      ));
     }
 
     this.meta.update(updates, true, {
       allowedProtectedKeys: MATCHMAKING_INFO_KEYS,
     });
-    const removed = (data.member_state_removed || []).filter((key) => !PROTECTED_META_KEYS.has(key));
+    const removed = removedKeys.filter((key) => !PROTECTED_META_KEYS.has(key as keyof PartyMemberSchema & string));
     if (removed.length) this.meta.remove(removed as (keyof PartyMemberSchema)[]);
+  }
+
+  private queueMatchmakingInfoRepair() {
+    const party = this.party as any;
+    if (!party?.me || party.me.id !== this.id) return;
+    if (!party.me.isLeader) return;
+    if (typeof (this as any).sendPatch !== 'function') return;
+
+    const now = Date.now();
+    const last = this.lastMatchmakingInfoRepairAt || 0;
+    if (now - last < 1500) return;
+
+    const currentRaw = (this.meta.schema as any)?.['Default:MatchmakingInfo_j'];
+    if (!currentRaw || typeof currentRaw !== 'string') return;
+
+    this.lastMatchmakingInfoRepairAt = now;
+    this.client.debug(`[PartyMember ${this.id}] reapply MatchmakingInfo (v1 snapshot)`);
+    void (this as any).sendPatch({
+      'Default:MatchmakingInfo_j': currentRaw,
+    }).catch((err: any) => {
+      this.client.debug(`[PartyMember ${this.id}] reapply MatchmakingInfo failed: ${err?.message || err}`);
+    });
   }
 
   /**

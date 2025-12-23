@@ -4,6 +4,7 @@ import { PartyPrivacy } from '../../../enums/Enums';
 import Base from '../../Base';
 import PartyAlreadyJoinedError from '../../exceptions/PartyAlreadyJoinedError';
 import { makeCamelCase, makeSnakeCase } from '../../util/Util';
+import { formatMetaSummary } from '../../util/partyMetaDebug';
 import ClientPartyMember from './ClientPartyMember';
 import PartyMember from './PartyMember';
 import PartyMeta from './PartyMeta';
@@ -178,6 +179,15 @@ class Party extends Base {
    */
   public updateData(data: PartyUpdateData) {
     if (data.revision > this.revision) this.revision = data.revision;
+    const updated = (data.party_state_updated ?? {}) as Record<string, unknown>;
+    const removed = (data.party_state_removed ?? []) as string[];
+    if (Object.keys(updated).length || removed.length) {
+      this.client.debug(formatMetaSummary(
+        `[Party ${this.id}] party_state_updated`,
+        updated,
+        removed,
+      ));
+    }
     this.meta.update(data.party_state_updated ?? {}, true);
     this.meta.remove(data.party_state_removed as (keyof PartySchema & string)[] ?? []);
 
