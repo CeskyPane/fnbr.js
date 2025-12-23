@@ -17,8 +17,14 @@ import type PartyMemberConfirmation from './PartyMemberConfirmation';
 import type ClientPartyMember from './ClientPartyMember';
 import type Client from '../../Client';
 import type {
-  Island, PartyData, PartyPrivacy, PartySchema,
+  Island, PartyData, PartyPrivacy, PartySchema, PartyUpdateData,
 } from '../../../resources/structs';
+
+type PlatformSessionEntry = {
+  sessionType?: string;
+  sessionId?: string;
+  ownerPrimaryId?: string;
+};
 import type PartyMember from './PartyMember';
 import type Friend from '../friend/Friend';
 
@@ -65,6 +71,49 @@ class ClientParty extends Party {
     this.patchQueue = new AsyncQueue();
     this.chat = new PartyChat(this.client, this);
     this.meta = new ClientPartyMeta(this, data instanceof Party ? data.meta.schema : data.meta);
+    this.capturePlatformSession(this.meta.schema['Default:PlatformSessions_j']);
+  }
+
+  private platformSessionsSnapshot?: string;
+
+  private capturePlatformSession(value?: string) {
+    if (!value || !this.client.user.self) return;
+
+    let parsed;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return;
+    }
+
+    const sessions = Array.isArray(parsed?.PlatformSessions) ? parsed.PlatformSessions as PlatformSessionEntry[] : [];
+    const selfEntry = sessions.find((session) => session.ownerPrimaryId === this.client.user.self!.id && session.sessionId);
+    if (!selfEntry) return;
+
+    this.platformSessionsSnapshot = JSON.stringify({ PlatformSessions: [selfEntry] });
+  }
+
+  private async ensurePlatformSession() {
+    if (!this.platformSessionsSnapshot || !this.client.user.self) return;
+
+    const currentMeta = this.meta.get('Default:PlatformSessions_j');
+    const currentSessions = Array.isArray(currentMeta?.PlatformSessions)
+      ? currentMeta.PlatformSessions as PlatformSessionEntry[]
+      : [];
+    const hasSelf = currentSessions.some((session) => session.ownerPrimaryId === this.client.user.self!.id && session.sessionId);
+    if (hasSelf) return;
+
+    const patchedValue = this.meta.set(
+      'Default:PlatformSessions_j',
+      this.platformSessionsSnapshot,
+      true,
+      { allowProtected: true },
+    );
+    this.capturePlatformSession(this.meta.schema['Default:PlatformSessions_j']);
+
+    await this.sendPatch({
+      'Default:PlatformSessions_j': patchedValue,
+    });
   }
 
   /**
@@ -163,6 +212,11 @@ class ClientParty extends Party {
     this.patchQueue.shift();
 
     return undefined;
+  }
+
+  public updateData(data: PartyUpdateData) {
+    super.updateData(data);
+    this.capturePlatformSession(data.party_state_updated?.['Default:PlatformSessions_j']);
   }
 
   /**
@@ -514,6 +568,8 @@ class ClientParty extends Party {
         'Default:RegionId_s': regionIdData,
       });
     }
+
+    await this.ensurePlatformSession();
   }
 
   /**
