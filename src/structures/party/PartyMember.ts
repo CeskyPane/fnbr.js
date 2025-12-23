@@ -6,6 +6,8 @@ import type Party from './Party';
 import type ClientParty from './ClientParty';
 import type { PartyMemberData, PartyMemberSchema, PartyMemberUpdateData } from '../../../resources/structs';
 
+const MATCHMAKING_INFO_KEYS: Set<keyof PartyMemberSchema & string> = new Set(['Default:MatchmakingInfo_j'] as (keyof PartyMemberSchema & string)[]);
+
 /**
  * Represents a party member
  */
@@ -235,7 +237,9 @@ class PartyMember extends User {
     if (data.revision > this.revision) this.revision = data.revision;
     if (data.account_dn !== this.displayName) this.update({ id: this.id, displayName: data.account_dn, externalAuths: this.externalAuths });
 
-    this.meta.update(data.member_state_updated, true);
+    this.meta.update(data.member_state_updated, true, {
+      allowedProtectedKeys: MATCHMAKING_INFO_KEYS,
+    });
     const removed = (data.member_state_removed || []).filter((key) => !PROTECTED_META_KEYS.has(key));
     if (removed.length) this.meta.remove(removed as (keyof PartyMemberSchema)[]);
   }

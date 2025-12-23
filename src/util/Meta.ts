@@ -2,6 +2,7 @@ import type { Schema } from '../../resources/structs';
 
 export type MetaSetOptions = {
   allowProtected?: boolean;
+  allowedProtectedKeys?: Set<keyof Schema & string>;
 };
 
 export const PROTECTED_META_KEYS = new Set<keyof Schema & string>([
@@ -40,7 +41,10 @@ class Meta<T extends Schema> {
     const keyType = key.slice(-1);
     const isProtected = PROTECTED_META_KEYS.has(key);
 
-    if (isProtected && !options.allowProtected) {
+    const allowProtectedKey = options.allowProtected
+      || !!options.allowedProtectedKeys && options.allowedProtectedKeys.has(key);
+
+    if (isProtected && !allowProtectedKey) {
       if (typeof this.schema[key] !== 'undefined') {
         return this.schema[key];
       }
