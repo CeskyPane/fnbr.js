@@ -52,13 +52,28 @@ class ClientPartyMeta extends PartyMeta {
       }
     });
 
-    const squadInformation = this.get('Default:SquadInformation_j');
+    const squadInformation = this.get('Default:SquadInformation_j') || {};
+    const currentSquadInfo = squadInformation.SquadInformation || {};
+    const currentSquadData = Array.isArray(currentSquadInfo.squadData)
+      ? currentSquadInfo.squadData
+      : [];
+    const desiredSquadCount = assignments.length > 1 ? 2 : 1;
+    let nextSquadData = currentSquadData;
+
+    if (currentSquadData.length < desiredSquadCount) {
+      const template = currentSquadData[0] || { jamTempo: 0, jamKey: 0, jamMode: 0 };
+      nextSquadData = currentSquadData.slice();
+      while (nextSquadData.length < desiredSquadCount) {
+        nextSquadData.push({ ...template });
+      }
+    }
 
     return this.set('Default:SquadInformation_j', {
       ...squadInformation,
       SquadInformation: {
-        ...squadInformation.SquadInformation,
+        ...currentSquadInfo,
         rawSquadAssignments: assignments,
+        squadData: nextSquadData,
       },
     }, false, { allowProtected: true });
   }

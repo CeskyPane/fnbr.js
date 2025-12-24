@@ -77,37 +77,67 @@ class ClientParty extends Party {
 
   private platformSessionsSnapshot?: string;
 
-  private capturePlatformSession(value?: string) {
-    if (!value || !this.client.user.self) return;
-
+  private parsePlatformSessions(value?: string): PlatformSessionEntry[] {
+    if (!value) return [];
     let parsed;
     try {
       parsed = JSON.parse(value);
     } catch {
-      return;
+      return [];
     }
+    return Array.isArray(parsed?.PlatformSessions)
+      ? parsed.PlatformSessions as PlatformSessionEntry[]
+      : [];
+  }
 
-    const sessions = Array.isArray(parsed?.PlatformSessions) ? parsed.PlatformSessions as PlatformSessionEntry[] : [];
-    const selfEntry = sessions.find((session) => session.ownerPrimaryId === this.client.user.self!.id && session.sessionId);
-    if (!selfEntry) return;
+  private extractPlatformSessions(value?: { PlatformSessions?: PlatformSessionEntry[] }): PlatformSessionEntry[] {
+    return Array.isArray(value?.PlatformSessions)
+      ? value!.PlatformSessions as PlatformSessionEntry[]
+      : [];
+  }
 
-    this.platformSessionsSnapshot = JSON.stringify({ PlatformSessions: [selfEntry] });
+  private capturePlatformSession(value?: string) {
+    if (!value) return;
+
+    const sessions = this.parsePlatformSessions(value);
+    const validSessions = sessions.filter((session) => session?.sessionId && session?.ownerPrimaryId);
+    if (validSessions.length === 0) return;
+
+    const memberFiltered = validSessions.filter((session) => this.members.has(session.ownerPrimaryId!));
+    const snapshot = memberFiltered.length > 0 ? memberFiltered : validSessions;
+    this.platformSessionsSnapshot = JSON.stringify({ PlatformSessions: snapshot });
   }
 
   private async ensurePlatformSession() {
-    if (!this.platformSessionsSnapshot || !this.client.user.self) return;
+    if (!this.platformSessionsSnapshot) return;
     if (!this.me?.isLeader) return;
 
+    const snapshotSessions = this.parsePlatformSessions(this.platformSessionsSnapshot)
+      .filter((session) => session?.sessionId && session?.ownerPrimaryId)
+      .filter((session) => this.members.has(session.ownerPrimaryId!));
+    if (snapshotSessions.length === 0) return;
+
     const currentMeta = this.meta.get('Default:PlatformSessions_j');
-    const currentSessions = Array.isArray(currentMeta?.PlatformSessions)
-      ? currentMeta.PlatformSessions as PlatformSessionEntry[]
-      : [];
-    const hasSelf = currentSessions.some((session) => session.ownerPrimaryId === this.client.user.self!.id && session.sessionId);
-    if (hasSelf) return;
+    const currentSessions = this.extractPlatformSessions(currentMeta);
+    const currentValid = currentSessions.filter((session) => session?.sessionId && session?.ownerPrimaryId);
+
+    const merged = [...currentValid];
+    const hasEntry = (session: PlatformSessionEntry) => merged
+      .some((current) => current.ownerPrimaryId === session.ownerPrimaryId
+        && (current.sessionType || '') === (session.sessionType || ''));
+
+    let needsPatch = currentValid.length === 0;
+    snapshotSessions.forEach((session) => {
+      if (!hasEntry(session)) {
+        merged.push(session);
+        needsPatch = true;
+      }
+    });
+    if (!needsPatch) return;
 
     const patchedValue = this.meta.set(
       'Default:PlatformSessions_j',
-      this.platformSessionsSnapshot,
+      JSON.stringify({ PlatformSessions: merged }),
       true,
       { allowProtected: true },
     );
@@ -519,10 +549,17 @@ class ClientParty extends Party {
     // Normalize to a V1 settings object (this matches what Fortnite UI writes for many playlists).
     // Keep existing privacy if present, otherwise default to NoFill (bots typically shouldn't pull random fills).
     const prevV1 = prevIslandObj?.MatchmakingSettingsV1 || {};
+    const normalizePrivacy = (value?: string) => {
+      if (typeof value !== 'string') return 'NoFill';
+      const trimmed = value.trim();
+      if (trimmed === 'NoFill' || trimmed === 'Fill' || trimmed === 'Private') return trimmed;
+      return 'NoFill';
+    };
+    const nextPrivacy = normalizePrivacy(prevV1?.privacy);
     const nextV1: any = {
       ...(prevV1 || {}),
       ...(effectiveRegionId !== undefined ? { regionId: effectiveRegionId } : {}),
-      ...(prevV1?.privacy ? {} : { privacy: 'NoFill' }),
+      privacy: nextPrivacy,
       ...(prevV1?.world ? {} : {
         world: {
           iD: '',

@@ -21,9 +21,8 @@ const shouldIgnoreMatchmakingUpdate = (value: unknown): boolean => {
   const info = (value as any).MatchmakingInfo;
   if (!info) return false;
   const islandSelection = info.islandSelection;
-  const currentIsland = info.currentIsland;
-  if (!islandSelection || !currentIsland) return false;
-  return isIslandV2(islandSelection.island) || isIslandV2(currentIsland.island);
+  if (!islandSelection) return false;
+  return isIslandV2(islandSelection.island);
 };
 
 /**
