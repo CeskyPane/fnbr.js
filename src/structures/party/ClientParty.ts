@@ -450,6 +450,7 @@ class ClientParty extends Party {
     });
     await this.ensurePlatformSession();
     this.me?.queueMatchmakingInfoRepair('custom_key');
+    this.client.schedulePartyResync('custom_key', this.id);
   }
 
   /**
@@ -643,6 +644,7 @@ class ClientParty extends Party {
     }
 
     await this.ensurePlatformSession();
+    this.client.schedulePartyResync('set_playlist', this.id);
   }
 
   /**

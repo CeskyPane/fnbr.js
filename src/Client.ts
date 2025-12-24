@@ -127,6 +127,11 @@ class Client extends EventEmitter {
    */
   public lastPartyMemberMeta?: Schema;
 
+  private lastPartyResyncAt = 0;
+
+  // eslint-disable-next-line no-undef
+  private partyResyncTimer?: NodeJS.Timeout;
+
   /**
    * Fortnite: Save The World manager
    */
@@ -569,6 +574,60 @@ class Client extends EventEmitter {
         if (typeof this.config.stompDebug === 'function') { this.config.stompDebug(message); }
         break;
     }
+  }
+
+  /**
+   * Resyncs the local party state from the server to recover from XMPP desyncs.
+   * Returns true when the local party was updated or cleared.
+   */
+  public async resyncParty(reason: string, partyId?: string) {
+    if (this.config.disablePartyService) return false;
+    if (!this.party) return false;
+    if (partyId && this.party.id !== partyId) return false;
+
+    const now = Date.now();
+    if (now - this.lastPartyResyncAt < 2000) return false;
+    this.lastPartyResyncAt = now;
+
+    await this.partyLock.wait();
+    this.partyLock.lock();
+
+    try {
+      if (!this.party || (partyId && this.party.id !== partyId)) return false;
+      const prevId = this.party.id;
+      const nextParty = await this.getClientParty();
+      if (!nextParty) {
+        this.debug(`[Party ${prevId}] resync: no party on server reason=${reason}`);
+        this.party = undefined;
+        return true;
+      }
+
+      const switched = nextParty.id !== prevId;
+      this.party = nextParty;
+      this.setStatus();
+      this.debug(`[Party ${prevId}] resync: ${switched ? `switched->${nextParty.id}` : 'refreshed'} reason=${reason}`);
+      return true;
+    } catch (err: any) {
+      this.debug(`[Party] resync failed reason=${reason} err=${err?.message || err}`);
+      return false;
+    } finally {
+      this.partyLock.unlock();
+    }
+  }
+
+  /**
+   * Schedules a debounced party resync to avoid spamming the party API.
+   */
+  public schedulePartyResync(reason: string, partyId?: string) {
+    if (this.config.disablePartyService) return;
+    if (!this.party) return;
+    if (partyId && this.party.id !== partyId) return;
+    if (this.partyResyncTimer) return;
+
+    this.partyResyncTimer = this.setTimeout(() => {
+      this.partyResyncTimer = undefined;
+      void this.resyncParty(reason, partyId);
+    }, 750);
   }
 
   /* -------------------------------------------------------------------------- */

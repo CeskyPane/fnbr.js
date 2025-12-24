@@ -630,6 +630,9 @@ class XMPP extends Base {
         }
       } catch (err: any) {
         this.client.debug(`[XMPP] Error while processing ${body.type}: ${err.name} - ${err.message}`);
+        if (err instanceof PartyMemberNotFoundError && body?.party_id) {
+          this.client.schedulePartyResync(`xmpp:${body.type}`, body.party_id);
+        }
         this.client.emit('xmpp:message:error', err);
       }
     });
