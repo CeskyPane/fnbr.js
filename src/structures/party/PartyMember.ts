@@ -9,20 +9,55 @@ import type { PartyMemberData, PartyMemberSchema, PartyMemberUpdateData } from '
 
 const MATCHMAKING_INFO_KEYS = new Set(['Default:MatchmakingInfo_j'] as const);
 
-const isIslandV2 = (island: unknown): boolean => {
-  if (typeof island === 'string') {
-    return island.includes('MatchmakingSettingsV2');
+const parseMatchmakingInfo = (value: unknown): any | null => {
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
   }
-  return typeof island === 'object' && island !== null;
+  if (typeof value === 'object' && value !== null) return value as any;
+  return null;
+};
+
+const parseIsland = (value: unknown): any | null => {
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value === 'object' && value !== null) return value as any;
+  return null;
+};
+
+const getSelectionInfo = (value: unknown) => {
+  const parsed = parseMatchmakingInfo(value);
+  const info = parsed?.MatchmakingInfo;
+  const selection = info?.islandSelection;
+  if (!selection) return null;
+  const island = parseIsland(selection.island);
+  return {
+    hasV1: !!island?.MatchmakingSettingsV1,
+    hasV2: !!island?.MatchmakingSettingsV2,
+    timestamp: selection.timestamp,
+  };
 };
 
 const shouldIgnoreMatchmakingUpdate = (value: unknown): boolean => {
-  if (typeof value !== 'object' || value === null) return false;
-  const info = (value as any).MatchmakingInfo;
-  if (!info) return false;
-  const islandSelection = info.islandSelection;
-  if (!islandSelection) return false;
-  return isIslandV2(islandSelection.island);
+  const selection = getSelectionInfo(value);
+  if (!selection) return false;
+  if (typeof selection.timestamp === 'number' && selection.timestamp < 0) return true;
+  return selection.hasV2 && !selection.hasV1;
+};
+
+const shouldCaptureMatchmakingSnapshot = (value: unknown): boolean => {
+  const selection = getSelectionInfo(value);
+  if (!selection) return false;
+  if (typeof selection.timestamp === 'number' && selection.timestamp < 0) return false;
+  return selection.hasV1;
 };
 
 /**
@@ -60,6 +95,8 @@ class PartyMember extends User {
   public receivedInitialStateUpdate: boolean;
 
   protected lastMatchmakingInfoRepairAt?: number;
+
+  protected lastMatchmakingInfoSnapshot?: string;
 
   /**
    * @param party The party this member belongs to
@@ -258,13 +295,16 @@ class PartyMember extends User {
 
     const updates = { ...data.member_state_updated };
     const removedKeys = (data.member_state_removed || []) as string[];
-    if (updates['Default:MatchmakingInfo_j'] && shouldIgnoreMatchmakingUpdate(updates['Default:MatchmakingInfo_j'])) {
+    const matchmakingUpdate = updates['Default:MatchmakingInfo_j'];
+    if (matchmakingUpdate && shouldIgnoreMatchmakingUpdate(matchmakingUpdate)) {
       this.client.debug(formatMetaFocus(
-        `[PartyMember ${this.id}] ignore MatchmakingInfo (v2)`,
-        { 'Default:MatchmakingInfo_j': updates['Default:MatchmakingInfo_j'] },
+        `[PartyMember ${this.id}] ignore MatchmakingInfo (invalid)`,
+        { 'Default:MatchmakingInfo_j': matchmakingUpdate },
       ));
       delete updates['Default:MatchmakingInfo_j'];
-      this.queueMatchmakingInfoRepair();
+      this.queueMatchmakingInfoRepair('invalid_update');
+    } else if (matchmakingUpdate && shouldCaptureMatchmakingSnapshot(matchmakingUpdate)) {
+      this.captureMatchmakingInfoSnapshot(matchmakingUpdate, 'member_state_updated');
     }
 
     if (Object.keys(updates).length || removedKeys.length) {
@@ -280,9 +320,24 @@ class PartyMember extends User {
     });
     const removed = removedKeys.filter((key) => !PROTECTED_META_KEYS.has(key as keyof PartyMemberSchema & string));
     if (removed.length) this.meta.remove(removed as (keyof PartyMemberSchema)[]);
+    if (removedKeys.includes('Default:MatchmakingInfo_j')) {
+      this.queueMatchmakingInfoRepair('removed');
+    }
   }
 
-  private queueMatchmakingInfoRepair() {
+  public cacheMatchmakingInfoSnapshot(raw: string, source = 'manual') {
+    this.captureMatchmakingInfoSnapshot(raw, source);
+  }
+
+  private captureMatchmakingInfoSnapshot(value: unknown, source: string) {
+    if (!shouldCaptureMatchmakingSnapshot(value)) return;
+    const raw = typeof value === 'string' ? value : JSON.stringify(value);
+    if (!raw) return;
+    this.lastMatchmakingInfoSnapshot = raw;
+    this.client.debug(`[PartyMember ${this.id}] cached MatchmakingInfo (${source})`);
+  }
+
+  public queueMatchmakingInfoRepair(reason?: string) {
     const party = this.party as any;
     if (!party?.me || party.me.id !== this.id) return;
     if (!party.me.isLeader) return;
@@ -292,13 +347,14 @@ class PartyMember extends User {
     const last = this.lastMatchmakingInfoRepairAt || 0;
     if (now - last < 1500) return;
 
-    const currentRaw = (this.meta.schema as any)?.['Default:MatchmakingInfo_j'];
-    if (!currentRaw || typeof currentRaw !== 'string') return;
+    const fallbackRaw = (this.meta.schema as any)?.['Default:MatchmakingInfo_j'];
+    const snapshot = this.lastMatchmakingInfoSnapshot || (typeof fallbackRaw === 'string' ? fallbackRaw : '');
+    if (!snapshot) return;
 
     this.lastMatchmakingInfoRepairAt = now;
-    this.client.debug(`[PartyMember ${this.id}] reapply MatchmakingInfo (v1 snapshot)`);
+    this.client.debug(`[PartyMember ${this.id}] reapply MatchmakingInfo (${reason || 'snapshot'})`);
     void (this as any).sendPatch({
-      'Default:MatchmakingInfo_j': currentRaw,
+      'Default:MatchmakingInfo_j': snapshot,
     }).catch((err: any) => {
       this.client.debug(`[PartyMember ${this.id}] reapply MatchmakingInfo failed: ${err?.message || err}`);
     });

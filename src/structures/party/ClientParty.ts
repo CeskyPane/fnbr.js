@@ -96,10 +96,15 @@ class ClientParty extends Party {
       : [];
   }
 
-  private capturePlatformSession(value?: string) {
-    if (!value) return;
+  private normalizePlatformSessions(value?: string | { PlatformSessions?: PlatformSessionEntry[] }) {
+    if (!value) return [];
+    if (typeof value === 'string') return this.parsePlatformSessions(value);
+    return this.extractPlatformSessions(value);
+  }
 
-    const sessions = this.parsePlatformSessions(value);
+  private capturePlatformSession(value?: string | { PlatformSessions?: PlatformSessionEntry[] }) {
+    const sessions = this.normalizePlatformSessions(value);
+    if (sessions.length === 0) return;
     const validSessions = sessions.filter((session) => session?.sessionId && session?.ownerPrimaryId);
     if (validSessions.length === 0) return;
 
@@ -108,7 +113,7 @@ class ClientParty extends Party {
     this.platformSessionsSnapshot = JSON.stringify({ PlatformSessions: snapshot });
   }
 
-  private async ensurePlatformSession() {
+  private async ensurePlatformSession(currentValue?: string | { PlatformSessions?: PlatformSessionEntry[] }) {
     if (!this.platformSessionsSnapshot) return;
     if (!this.me?.isLeader) return;
 
@@ -117,8 +122,9 @@ class ClientParty extends Party {
       .filter((session) => this.members.has(session.ownerPrimaryId!));
     if (snapshotSessions.length === 0) return;
 
-    const currentMeta = this.meta.get('Default:PlatformSessions_j');
-    const currentSessions = this.extractPlatformSessions(currentMeta);
+    const currentSessions = currentValue !== undefined
+      ? this.normalizePlatformSessions(currentValue)
+      : this.extractPlatformSessions(this.meta.get('Default:PlatformSessions_j'));
     const currentValid = currentSessions.filter((session) => session?.sessionId && session?.ownerPrimaryId);
 
     const merged = [...currentValid];
@@ -259,9 +265,13 @@ class ClientParty extends Party {
   public updateData(data: PartyUpdateData) {
     super.updateData(data);
     const platformSessions = data.party_state_updated?.['Default:PlatformSessions_j'];
-    this.capturePlatformSession(platformSessions);
-    if (platformSessions) {
-      void this.ensurePlatformSession().catch((err: any) => {
+    const removedPlatformSessions = (data.party_state_removed || []).includes('Default:PlatformSessions_j');
+    const hasPlatformSessionsUpdate = typeof platformSessions !== 'undefined';
+    if (hasPlatformSessionsUpdate) {
+      this.capturePlatformSession(platformSessions);
+    }
+    if (hasPlatformSessionsUpdate || removedPlatformSessions) {
+      void this.ensurePlatformSession(hasPlatformSessionsUpdate ? platformSessions : '').catch((err: any) => {
         this.client.debug(`[Party ${this.id}] ensurePlatformSession failed: ${err?.message || err}`);
       });
     }
@@ -438,6 +448,8 @@ class ClientParty extends Party {
     await this.sendPatch({
       'Default:CustomMatchKey_s': this.meta.set('Default:CustomMatchKey_s', key || ''),
     });
+    await this.ensurePlatformSession();
+    this.me?.queueMatchmakingInfoRepair('custom_key');
   }
 
   /**
@@ -614,6 +626,7 @@ class ClientParty extends Party {
           },
         },
       }, false, { allowProtected: true });
+      me.cacheMatchmakingInfoSnapshot(mm, 'setPlaylist');
 
       await me.sendPatch({
         'Default:MatchmakingInfo_j': mm,

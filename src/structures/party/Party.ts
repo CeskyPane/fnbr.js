@@ -5,6 +5,7 @@ import Base from '../../Base';
 import PartyAlreadyJoinedError from '../../exceptions/PartyAlreadyJoinedError';
 import { makeCamelCase, makeSnakeCase } from '../../util/Util';
 import { formatMetaSummary } from '../../util/partyMetaDebug';
+import { PROTECTED_META_KEYS } from '../../util/Meta';
 import ClientPartyMember from './ClientPartyMember';
 import PartyMember from './PartyMember';
 import PartyMeta from './PartyMeta';
@@ -188,8 +189,15 @@ class Party extends Base {
         removed,
       ));
     }
-    this.meta.update(data.party_state_updated ?? {}, true);
-    this.meta.remove(data.party_state_removed as (keyof PartySchema & string)[] ?? []);
+    const allowedProtectedKeys = new Set<keyof PartySchema & string>([
+      'Default:PlatformSessions_j',
+      'Default:SquadInformation_j',
+    ]);
+    this.meta.update(data.party_state_updated ?? {}, true, { allowedProtectedKeys });
+    const filteredRemoved = removed.filter((key) => !PROTECTED_META_KEYS.has(key as keyof PartySchema & string));
+    if (filteredRemoved.length) {
+      this.meta.remove(filteredRemoved as (keyof PartySchema & string)[]);
+    }
 
     this.config.joinability = data.party_privacy_type;
     this.config.maxSize = data.max_number_of_members;
